@@ -2,11 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- viewport: no user-scaling so the game canvas stays crisp on mobile -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Snake Game</title>
   <style>
     /* ── Reset & base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      /* Prevent pull-to-refresh / scroll bounce interfering with swipes */
+      overscroll-behavior: none;
+    }
 
     body {
       min-height: 100vh;
@@ -18,35 +25,48 @@
       font-family: 'Segoe UI', system-ui, sans-serif;
       color: #e0e0e0;
       user-select: none;
+      padding: 12px 8px;
+      gap: 0;
     }
 
     h1 {
-      font-size: 2.2rem;
+      font-size: clamp(1.3rem, 5vw, 2.2rem);
       letter-spacing: 4px;
       text-transform: uppercase;
       color: #4ade80;
       text-shadow: 0 0 16px #4ade8088;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     /* ── HUD (score + controls) ── */
     #hud {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 24px;
-      margin-bottom: 14px;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
       font-size: 1rem;
+      width: 100%;
+      max-width: 440px;
     }
 
-    #score-box {
+    /* shared pill style for all HUD boxes */
+    .hud-box {
       background: #1e1e2e;
-      border: 1px solid #4ade8044;
       border-radius: 8px;
-      padding: 6px 18px;
-      font-size: 1.1rem;
+      padding: 5px 14px;
+      font-size: clamp(0.75rem, 3vw, 1rem);
+      white-space: nowrap;
     }
 
-    #score-box span { color: #4ade80; font-weight: 700; font-size: 1.4rem; }
+    #score-box    { border: 1px solid #4ade8044; }
+    #highscore-box{ border: 1px solid #fbbf2444; }
+    #speed-box    { border: 1px solid #a78bfa44; }
+
+    #score-box span     { color: #4ade80; font-weight: 700; font-size: clamp(1rem, 4vw, 1.4rem); }
+    #highscore-box span { color: #fbbf24; font-weight: 700; font-size: clamp(1rem, 4vw, 1.4rem); }
+    #speed-box span     { color: #a78bfa; font-weight: 700; font-size: clamp(1rem, 4vw, 1.4rem); }
 
     /* Pause button */
     #btn-pause {
@@ -54,19 +74,23 @@
       border: 1px solid #60a5fa55;
       color: #60a5fa;
       border-radius: 8px;
-      padding: 6px 18px;
-      font-size: 0.95rem;
+      padding: 5px 14px;
+      font-size: clamp(0.8rem, 3vw, 0.95rem);
       cursor: pointer;
       transition: background 0.2s, box-shadow 0.2s;
+      touch-action: manipulation; /* snappy tap on mobile */
     }
-    #btn-pause:hover { background: #2a2a3e; box-shadow: 0 0 8px #60a5fa55; }
+    #btn-pause:hover  { background: #2a2a3e; box-shadow: 0 0 8px #60a5fa55; }
+    #btn-pause:active { background: #2a2a3e; }
 
-    /* ── Canvas wrapper ── */
+    /* ── Canvas wrapper – sizes itself via JS ── */
     #canvas-wrapper {
       position: relative;
       border-radius: 12px;
       overflow: hidden;
       box-shadow: 0 0 40px #4ade8033, 0 0 0 2px #4ade8044;
+      /* flex-shrink so it never overflows on tiny screens */
+      flex-shrink: 0;
     }
 
     canvas { display: block; background: #111122; }
@@ -75,63 +99,121 @@
     #overlay {
       position: absolute;
       inset: 0;
-      display: none;               /* hidden by default */
+      display: none;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       background: rgba(10, 10, 20, 0.82);
       backdrop-filter: blur(4px);
-      gap: 16px;
+      gap: 12px;
+      padding: 16px;
     }
 
     #overlay.visible { display: flex; }
 
     #overlay-title {
-      font-size: 2.4rem;
+      font-size: clamp(1.4rem, 6vw, 2.4rem);
       font-weight: 700;
       letter-spacing: 3px;
       text-transform: uppercase;
+      text-align: center;
     }
 
     #overlay-title.gameover { color: #f87171; text-shadow: 0 0 20px #f8717188; }
     #overlay-title.paused   { color: #facc15; text-shadow: 0 0 20px #facc1588; }
 
-    #overlay-score { font-size: 1.1rem; color: #a0a0b0; }
-    #overlay-score span { color: #4ade80; font-weight: 700; }
+    #overlay-score     { font-size: clamp(0.9rem, 3.5vw, 1.1rem); color: #a0a0b0; }
+    #overlay-score span{ color: #4ade80; font-weight: 700; }
+
+    #overlay-highscore      { font-size: clamp(0.85rem, 3vw, 1rem); color: #a0a0b0; }
+    #overlay-highscore span { color: #fbbf24; font-weight: 700; }
+
+    /* "New Record!" badge */
+    #new-record {
+      display: none;
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      color: #0f0f1a;
+      font-weight: 700;
+      font-size: clamp(0.75rem, 3vw, 0.9rem);
+      letter-spacing: 1px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      animation: pop 0.4s ease;
+    }
+    #new-record.show { display: inline-block; }
+
+    @keyframes pop {
+      0%   { transform: scale(0.5); opacity: 0; }
+      70%  { transform: scale(1.15); }
+      100% { transform: scale(1);   opacity: 1; }
+    }
 
     #btn-restart {
-      margin-top: 8px;
+      margin-top: 4px;
       background: linear-gradient(135deg, #4ade80, #22c55e);
       color: #0f0f1a;
       border: none;
       border-radius: 10px;
       padding: 10px 32px;
-      font-size: 1rem;
+      font-size: clamp(0.9rem, 3.5vw, 1rem);
       font-weight: 700;
       letter-spacing: 1px;
       cursor: pointer;
       transition: transform 0.15s, box-shadow 0.2s;
       box-shadow: 0 4px 18px #4ade8055;
+      touch-action: manipulation;
     }
-    #btn-restart:hover { transform: scale(1.06); box-shadow: 0 6px 24px #4ade8077; }
+    #btn-restart:hover  { transform: scale(1.06); box-shadow: 0 6px 24px #4ade8077; }
+    #btn-restart:active { transform: scale(0.97); }
 
-    /* ── Speed indicator ── */
-    #speed-box {
-      background: #1e1e2e;
-      border: 1px solid #a78bfa44;
-      border-radius: 8px;
-      padding: 6px 18px;
-      font-size: 1.1rem;
-    }
-    #speed-box span { color: #a78bfa; font-weight: 700; font-size: 1.4rem; }
-
-    /* ── Key hints ── */
+    /* ── Key hints (hidden on touch devices) ── */
     #hints {
-      margin-top: 14px;
-      font-size: 0.78rem;
+      margin-top: 10px;
+      font-size: 0.75rem;
       color: #555570;
       letter-spacing: 0.5px;
+      text-align: center;
     }
+    @media (hover: none) {
+      /* touch-only device: hide keyboard hint, show d-pad instead */
+      #hints { display: none; }
+    }
+
+    /* ── On-screen D-pad (touch only) ── */
+    #dpad {
+      display: none;          /* shown via JS when touch is detected */
+      margin-top: 14px;
+      width: 150px;
+      height: 150px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .dpad-btn {
+      position: absolute;
+      width: 46px;
+      height: 46px;
+      background: #1e1e2e;
+      border: 1px solid #4ade8044;
+      border-radius: 10px;
+      color: #4ade80;
+      font-size: 1.3rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: background 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .dpad-btn:active { background: #2e3e2e; }
+
+    /* cross layout */
+    #dpad-up    { top: 0;    left: 50%; transform: translateX(-50%); }
+    #dpad-down  { bottom: 0; left: 50%; transform: translateX(-50%); }
+    #dpad-left  { left: 0;   top: 50%;  transform: translateY(-50%); }
+    #dpad-right { right: 0;  top: 50%;  transform: translateY(-50%); }
   </style>
 </head>
 <body>
@@ -139,23 +221,34 @@
   <h1>🐍 Snake</h1>
 
   <div id="hud">
-    <div id="score-box">Score&nbsp; <span id="score-display">0</span></div>
+    <div id="score-box" class="hud-box">Score&nbsp; <span id="score-display">0</span></div>
     <button id="btn-pause">⏸ Pause</button>
-    <div id="speed-box">Speed&nbsp; <span id="speed-display">1</span></div>
+    <div id="highscore-box" class="hud-box">Best&nbsp; <span id="highscore-display">0</span></div>
+    <div id="speed-box" class="hud-box">Speed&nbsp; <span id="speed-display">1</span></div>
   </div>
 
   <div id="canvas-wrapper">
-    <canvas id="game-canvas" width="400" height="400"></canvas>
+    <canvas id="game-canvas"></canvas>
 
     <!-- Overlay for Game Over and Pause -->
     <div id="overlay">
       <div id="overlay-title">Game Over</div>
       <div id="overlay-score">Final Score: <span id="final-score">0</span></div>
+      <div id="overlay-highscore">Best Score: <span id="overlay-best">0</span></div>
+      <div id="new-record">🏆 New Record!</div>
       <button id="btn-restart">▶ Play Again</button>
     </div>
   </div>
 
   <div id="hints">Arrow keys to move &nbsp;|&nbsp; P or Space to pause</div>
+
+  <!-- On-screen D-pad for touch/mobile -->
+  <div id="dpad">
+    <button class="dpad-btn" id="dpad-up"    aria-label="Up">▲</button>
+    <button class="dpad-btn" id="dpad-left"  aria-label="Left">◀</button>
+    <button class="dpad-btn" id="dpad-right" aria-label="Right">▶</button>
+    <button class="dpad-btn" id="dpad-down"  aria-label="Down">▼</button>
+  </div>
 
 <script>
   // ─────────────────────────────────────────────
@@ -163,10 +256,12 @@
   // ─────────────────────────────────────────────
   const COLS        = 20;          // grid columns
   const ROWS        = 20;          // grid rows
-  const CELL        = 20;          // px per cell
   const BASE_SPEED  = 150;         // ms per tick at level 1
   const SPEED_STEP  = 8;           // ms reduction per food eaten
   const MIN_SPEED   = 60;          // fastest possible tick (ms)
+
+  // CELL size is computed dynamically – see resizeCanvas()
+  let CELL = 20;
 
   // Colours
   const COLOR_BG        = '#111122';
@@ -181,13 +276,43 @@
   // ─────────────────────────────────────────────
   const canvas        = document.getElementById('game-canvas');
   const ctx           = canvas.getContext('2d');
-  const scoreDisplay  = document.getElementById('score-display');
-  const speedDisplay  = document.getElementById('speed-display');
-  const overlay       = document.getElementById('overlay');
-  const overlayTitle  = document.getElementById('overlay-title');
-  const finalScore    = document.getElementById('final-score');
-  const btnRestart    = document.getElementById('btn-restart');
-  const btnPause      = document.getElementById('btn-pause');
+  const scoreDisplay     = document.getElementById('score-display');
+  const highscoreDisplay = document.getElementById('highscore-display');
+  const speedDisplay     = document.getElementById('speed-display');
+  const overlay          = document.getElementById('overlay');
+  const overlayTitle     = document.getElementById('overlay-title');
+  const finalScore       = document.getElementById('final-score');
+  const overlayBest      = document.getElementById('overlay-best');
+  const newRecordBadge   = document.getElementById('new-record');
+  const btnRestart       = document.getElementById('btn-restart');
+  const btnPause         = document.getElementById('btn-pause');
+  const dpad             = document.getElementById('dpad');
+
+  // ─────────────────────────────────────────────
+  //  Responsive canvas sizing
+  // ─────────────────────────────────────────────
+  /**
+   * Fit the canvas to the available viewport space.
+   * Keeps the grid square and pixel-perfect.
+   */
+  function resizeCanvas() {
+    // Leave room for HUD (~80px), D-pad (~170px on mobile), padding
+    const maxH = window.innerHeight - 280;
+    const maxW = window.innerWidth  - 24;
+    const size = Math.floor(Math.min(maxW, maxH) / COLS) * COLS; // snap to grid
+    CELL = size / COLS;
+    canvas.width  = size;
+    canvas.height = size;
+    // Keep wrapper the same size so the overlay covers it correctly
+    const wrapper = document.getElementById('canvas-wrapper');
+    wrapper.style.width  = size + 'px';
+    wrapper.style.height = size + 'px';
+    if (typeof draw === 'function' && food) draw(); // redraw if game is running
+  }
+
+  // Resize on load and whenever the window changes (rotation, resize)
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas(); // initial call
 
   // ─────────────────────────────────────────────
   //  Audio helpers (Web Audio API – no files needed)
@@ -227,6 +352,22 @@
   let gameLoop = null;   // setInterval handle
   let paused   = false;
   let running  = false;
+
+  // ─────────────────────────────────────────────
+  //  High score – persisted in localStorage
+  // ─────────────────────────────────────────────
+  const LS_KEY   = 'snakeHighScore';
+  let highScore  = parseInt(localStorage.getItem(LS_KEY) || '0', 10);
+
+  /** Save a new high score if current score beats it. Returns true if new record. */
+  function checkHighScore() {
+    if (score > highScore) {
+      highScore = score;
+      localStorage.setItem(LS_KEY, highScore);
+      return true; // new record
+    }
+    return false;
+  }
 
   // ─────────────────────────────────────────────
   //  Initialise / restart
@@ -333,8 +474,10 @@
     running = false;
     clearInterval(gameLoop);
     sfxDie();
-    draw(); // draw final frame
-    showOverlay('gameover');
+    const isNewRecord = checkHighScore(); // save high score before overlay
+    updateHUD();                          // refresh Best in HUD
+    draw();                               // draw final frame
+    showOverlay('gameover', isNewRecord);
   }
 
   // ─────────────────────────────────────────────
@@ -356,17 +499,21 @@
   // ─────────────────────────────────────────────
   //  Overlay helpers
   // ─────────────────────────────────────────────
-  function showOverlay(type) {
+  function showOverlay(type, isNewRecord = false) {
     overlay.classList.add('visible');
     if (type === 'gameover') {
-      overlayTitle.textContent = 'Game Over';
-      overlayTitle.className   = 'gameover';
-      finalScore.textContent   = score;
-      btnRestart.style.display = 'inline-block';
+      overlayTitle.textContent     = 'Game Over';
+      overlayTitle.className       = 'gameover';
+      finalScore.textContent       = score;
+      overlayBest.textContent      = highScore;
+      // Show "New Record!" badge with animation if applicable
+      newRecordBadge.classList.toggle('show', isNewRecord);
+      btnRestart.style.display     = 'inline-block';
     } else {
-      overlayTitle.textContent = 'Paused';
-      overlayTitle.className   = 'paused';
-      btnRestart.style.display = 'none';
+      overlayTitle.textContent     = 'Paused';
+      overlayTitle.className       = 'paused';
+      newRecordBadge.classList.remove('show');
+      btnRestart.style.display     = 'none';
     }
   }
 
@@ -378,8 +525,9 @@
   //  HUD update
   // ─────────────────────────────────────────────
   function updateHUD() {
-    scoreDisplay.textContent = score;
-    speedDisplay.textContent = level;
+    scoreDisplay.textContent     = score;
+    speedDisplay.textContent     = level;
+    highscoreDisplay.textContent = highScore;
   }
 
   // ─────────────────────────────────────────────
@@ -465,7 +613,7 @@
   }
 
   // ─────────────────────────────────────────────
-  //  Input handling
+  //  Input handling – keyboard
   // ─────────────────────────────────────────────
   const DIR_MAP = {
     ArrowUp:    { x:  0, y: -1 },
@@ -494,6 +642,75 @@
     // Resume audio context on first interaction (browser policy)
     if (audioCtx.state === 'suspended') audioCtx.resume();
   });
+
+  // ─────────────────────────────────────────────
+  //  Input handling – touch swipe
+  // ─────────────────────────────────────────────
+  let touchStartX = 0;
+  let touchStartY = 0;
+  const SWIPE_THRESHOLD = 20; // minimum px to count as a swipe
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+
+    if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) return;
+
+    let newDir;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      newDir = dx > 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
+    } else {
+      newDir = dy > 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
+    }
+
+    // Prevent reversing
+    if (newDir.x === -dir.x && newDir.y === -dir.y) return;
+    nextDir = newDir;
+  }, { passive: false });
+
+  // ─────────────────────────────────────────────
+  //  Input handling – on-screen D-pad
+  // ─────────────────────────────────────────────
+  function setupDpad() {
+    const map = {
+      'dpad-up':    { x:  0, y: -1 },
+      'dpad-down':  { x:  0, y:  1 },
+      'dpad-left':  { x: -1, y:  0 },
+      'dpad-right': { x:  1, y:  0 },
+    };
+
+    Object.entries(map).forEach(([id, d]) => {
+      const btn = document.getElementById(id);
+      // Use both touchstart and mousedown for broadest compatibility
+      ['touchstart', 'mousedown'].forEach(evt => {
+        btn.addEventListener(evt, e => {
+          e.preventDefault();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          if (d.x === -dir.x && d.y === -dir.y) return; // no reversing
+          nextDir = d;
+        }, { passive: false });
+      });
+    });
+  }
+
+  // Show D-pad on touch-capable devices
+  function detectTouch() {
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      dpad.style.display = 'flex';
+      dpad.style.flexWrap = 'wrap'; // keep it as positioned layout
+      dpad.style.display = 'block'; // use position:absolute children
+    }
+  }
+  detectTouch();
+  setupDpad();
 
   // Button listeners
   btnRestart.addEventListener('click', init);
