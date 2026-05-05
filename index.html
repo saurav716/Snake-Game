@@ -307,12 +307,12 @@
     const wrapper = document.getElementById('canvas-wrapper');
     wrapper.style.width  = size + 'px';
     wrapper.style.height = size + 'px';
-    if (typeof draw === 'function' && food) draw(); // redraw if game is running
+    // Only redraw if the game is running and food has been spawned
+    if (running && food) draw();
   }
 
-  // Resize on load and whenever the window changes (rotation, resize)
-  window.addEventListener('resize', resizeCanvas);
-  resizeCanvas(); // initial call
+  // Resize whenever the window changes (rotation, resize)
+  // Initial call happens after all state is declared (see bottom of script)
 
   // ─────────────────────────────────────────────
   //  Audio helpers (Web Audio API – no files needed)
@@ -722,6 +722,11 @@
   // ─────────────────────────────────────────────
   //  Kick off
   // ─────────────────────────────────────────────
+
+  // Wire up resize listener and do initial sizing now that all state is declared
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
   init();
 </script>
 </body>
